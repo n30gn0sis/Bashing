@@ -1,0 +1,7 @@
+# Shell scripts must keep LF endings; CRLF breaks the shebang on Linux.
+*.sh   text eol=lf
+*.bash text eol=lf
+bin/*  text eol=lf
+Makefile text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf

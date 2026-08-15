@@ -1,0 +1,7 @@
+# ShellCheck configuration — see https://github.com/koalaman/shellcheck/wiki
+#
+# source-path=SCRIPTDIR makes `# shellcheck source=...` directives resolve
+# relative to the file doing the sourcing rather than the current working
+# directory, so `make lint` gives the same result from any directory.
+source-path=SCRIPTDIR
+external-sources=true

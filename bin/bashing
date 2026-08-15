@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# bashing — command-line entry point.
+#
+# Global options are parsed here; everything after the first non-option word is
+# handed to the subcommand untouched.
+
+set -euo pipefail
+
+# lib/ uses associative arrays and `declare -g`, which need bash >= 4.2.
+# macOS still ships bash 3.2, so fail with a useful message rather than a
+# confusing syntax error.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 2))); then
+  printf 'bashing: requires bash >= 4.2, found %s\n' "$BASH_VERSION" >&2
+  printf 'bashing: on macOS, install a newer bash (e.g. brew install bash)\n' >&2
+  exit 1
+fi
+
+BASHING_VERSION="0.1.0"
+
+# _bashing_root — print the repository root, following symlinks so the CLI
+# still works when linked onto PATH from somewhere else.
+_bashing_root() {
+  local src=${BASH_SOURCE[0]} dir
+  while [[ -L $src ]]; do
+    dir=$(cd -P "$(dirname "$src")" && pwd)
+    src=$(readlink "$src")
+    [[ $src != /* ]] && src=$dir/$src
+  done
+  cd -P "$(dirname "$src")/.." && pwd
+}
+
+BASHING_ROOT=$(_bashing_root)
+readonly BASHING_ROOT BASHING_VERSION
+
+# shellcheck source=../lib/colors.sh
+source "$BASHING_ROOT/lib/colors.sh"
+# shellcheck source=../lib/log.sh
+source "$BASHING_ROOT/lib/log.sh"
+# shellcheck source=../lib/util.sh
+source "$BASHING_ROOT/lib/util.sh"
+# shellcheck source=../lib/commands.sh
+source "$BASHING_ROOT/lib/commands.sh"
+
+# usage — print top-level usage. Per-command help lives in `usage_<name>`
+# functions in lib/commands.sh and is reached via `bashing help <command>`.
+usage() {
+  cat <<'EOF'
+bashing — a small Bash CLI toolkit
+
+usage: bashing [GLOBAL OPTIONS] <command> [ARGS...]
+
+Global options:
+  -h, --help        Show this help and exit
+  -V, --version     Print the version and exit
+  -v, --verbose     Log at debug level
+  -q, --quiet       Log errors only
+      --no-color    Disable colored output
+      --            Stop parsing global options
+
+Commands:
+EOF
+
+  local name
+  while read -r name; do
+    printf '  %-12s %s\n' "$name" "${BASHING_HELP[$name]}"
+  done < <(printf '%s\n' "${!BASHING_HELP[@]}" | sort)
+
+  cat <<'EOF'
+
+Environment:
+  BASHING_LOG_LEVEL   debug|info|warn|error|silent (default: info)
+  NO_COLOR            Set to any value to disable color
+  BASHING_FORCE_COLOR Set to 1 to force color even when not a TTY
+EOF
+}
+
+main() {
+  local cmd=""
+
+  while (($# > 0)); do
+    case $1 in
+      -h | --help)
+        usage
+        return 0
+        ;;
+      -V | --version)
+        printf '%s\n' "$BASHING_VERSION"
+        return 0
+        ;;
+      -v | --verbose) BASHING_LOG_LEVEL=debug ;;
+      -q | --quiet) BASHING_LOG_LEVEL=error ;;
+      --no-color)
+        NO_COLOR=1
+        colors::init
+        ;;
+      --)
+        shift
+        cmd=${1:-}
+        [[ -n $cmd ]] && shift
+        break
+        ;;
+      -*)
+        log::error "unknown global option: $1"
+        usage >&2
+        return 64
+        ;;
+      *)
+        cmd=$1
+        shift
+        break
+        ;;
+    esac
+    shift
+  done
+
+  if [[ -z $cmd ]]; then
+    usage >&2
+    return 64
+  fi
+
+  local fn="cmd_${cmd//-/_}"
+  if ! declare -F "$fn" >/dev/null 2>&1; then
+    log::error "unknown command: $cmd"
+    log::info "run 'bashing help' to list available commands"
+    return 127
+  fi
+
+  "$fn" "$@"
+}
+
+main "$@"

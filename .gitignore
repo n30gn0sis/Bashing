@@ -1,0 +1,14 @@
+# Test and build scratch
+/tmp/
+*.tmp
+*.log
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Locally vendored tools (shellcheck/shfmt binaries)
+/.tools/
