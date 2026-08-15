@@ -71,6 +71,69 @@ bashing greet --help
 
 Logs go to stderr, results to stdout — so `bashing <cmd> | other-tool` works.
 
+## netcheck
+
+`bin/netcheck` is a **standalone**, read-only network diagnostic for Ubuntu and
+RHEL-family systems. It is self-contained — copy the single file to a host and
+run it, no clone required.
+
+```bash
+scp bin/netcheck server:/tmp/ && ssh server /tmp/netcheck
+```
+
+```
+netcheck  2026-08-15 17:58:22  (debian family)
+
+  [ ok ] interfaces         eth0 up mtu=1400
+  [ ok ] address            192.0.2.2
+  [ ok ] gateway            192.0.2.1 via eth0
+  [ ok ] gateway_reach      192.0.2.1 resolved in ARP cache (02:fc:00:00:00:05)
+  [ ok ] egress             outbound TCP reachable (2/2 endpoints)
+  [ ok ] dns_resolve        github.com resolved in 16ms
+  [warn] nameserver_reach   no tcp/53 to 8.8.8.8 (udp may still work)
+```
+
+It **never modifies the host**. When something is broken it prints the
+distro-appropriate fix command and leaves running it to you:
+
+```
+  [fail] gateway            no default route
+         suggest: add a gateway in /etc/netplan/*.yaml, then: sudo netplan apply
+```
+
+On a RHEL box the same failure suggests `nmcli con mod <con> ipv4.gateway <ip>`
+instead — the family is detected from `/etc/os-release`, including derivatives
+like Rocky and Alma via `ID_LIKE`.
+
+### Why it does not use `ip` or `ping`
+
+Minimal cloud images routinely lack `ip`, `ping`, `dig`, and `nmcli` — a stock
+Ubuntu 24.04 container has none of them. A diagnostic built on those tools
+reports a total outage on a perfectly healthy machine. `netcheck` reads
+`/proc` and `/sys` directly, resolves names via `getent`, and tests TCP with
+bash's `/dev/tcp`, so the core checks have **no external dependencies**. When
+`ip` or `nmcli` are present they are used for extra detail, never relied upon.
+
+### Options
+
+```
+      --json           Emit results as JSON instead of a table
+  -q, --quiet          Suppress output; rely on the exit code
+      --target HOST    Hostname for the DNS check (default: github.com)
+      --egress LIST    HOST:PORT list for the egress check
+                       (default: 1.1.1.1:443,8.8.8.8:443)
+      --timeout SECS   Per-probe timeout (default: 3)
+      --no-color       Disable colored output
+```
+
+Exit codes: `0` all clear · `1` at least one check failed · `64` usage error.
+Warnings and skips do not fail the run, so it drops straight into monitoring:
+
+```bash
+netcheck --quiet || alert "network degraded on $(hostname)"
+netcheck --json | jq -r '.[] | select(.status=="fail")'
+```
+
 ## Development
 
 ```bash

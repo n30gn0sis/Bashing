@@ -4,9 +4,14 @@ Guidance for AI assistants (and humans) working in this repository.
 
 ## What this project is
 
-**Bashing** is a small Bash CLI toolkit. It provides a single executable,
+**Bashing** is a small Bash CLI toolkit. It provides an executable,
 `bin/bashing`, built on a set of sourced library modules in `lib/`, plus a
 dependency-free test harness and lint/format tooling.
+
+It also ships `bin/netcheck`, a **standalone** read-only network diagnostic for
+Ubuntu and RHEL systems. That one deliberately does *not* source `lib/` — it is
+meant to be copied to a host on its own — so it carries its own logging and
+color code. Keep it self-contained.
 
 The repository was scaffolded as a starter project — the `greet` command is an
 example placeholder meant to be replaced with real functionality. The library,
@@ -28,6 +33,7 @@ so do not add one uninvited.
 
 ```
 bin/bashing            Executable entry point: global flag parsing + dispatch
+bin/netcheck           Standalone network diagnostic (self-contained, no lib/)
 lib/colors.sh          COLOR_* variables, TTY/NO_COLOR detection
 lib/log.sh             Leveled logging to stderr (log::debug/info/warn/error)
 lib/util.sh            Helpers: util::die/have/require_cmd/trim/join/confirm
@@ -39,6 +45,8 @@ scripts/test.sh        Thin wrapper around tests/run.sh
 tests/run.sh           Dependency-free TAP-like test runner
 tests/helpers.sh       assert_* helpers; sources lib/ for the tests
 tests/test_*.sh        Test files, one per subject area
+tests/fixtures/        Synthetic /proc, /sys, resolv.conf, os-release trees
+                       used by the netcheck tests
 Makefile               Developer entry points; delegates to scripts/
 .shellcheckrc          source-path=SCRIPTDIR so `source` directives resolve
 .editorconfig          Mirrors the shfmt style (2-space, indented switch cases)
@@ -162,6 +170,30 @@ Two things to know before writing tests:
 Use `bashing_cli` from `helpers.sh` to invoke the CLI rather than hardcoding a
 path.
 
+### Testing code that reads system state
+
+`bin/netcheck` reads every piece of system state through an overridable path,
+which is what makes it testable without a network, without root, and with
+identical results on any machine:
+
+| Variable | Default |
+| --- | --- |
+| `NETCHECK_PROC_ROOT` | `/proc` |
+| `NETCHECK_SYS_ROOT` | `/sys` |
+| `NETCHECK_RESOLV_CONF` | `/etc/resolv.conf` |
+| `NETCHECK_OS_RELEASE` | `/etc/os-release` |
+| `NETCHECK_SKIP_NET` | `0` (set to `1` to disable live probes) |
+
+Fixture trees live in `tests/fixtures/<scenario>/`; `netcheck_fixture` in
+`tests/test_netcheck.sh` wires them up. **When a root is overridden the script
+also refuses to consult host tools** (`have` returns false), so a fixture run
+can never be contaminated by the real machine. Adding a scenario means adding a
+directory, not touching the script.
+
+Apply the same pattern to any future code that reads `/proc`, `/sys`, or
+`/etc` — it is the difference between a testable check and one that only works
+on the author's laptop.
+
 ## Style
 
 Enforced mechanically by `make check` — run it rather than guessing.
@@ -174,6 +206,12 @@ Enforced mechanically by `make check` — run it rather than guessing.
   single-rule, and carry a comment explaining why — match that bar. Note that a
   file-level `# shellcheck disable=` must appear *before the first command* in
   the file, otherwise it silently applies only to the next command.
+- **`set -euo pipefail` in `bin/` and `scripts/`, with one documented
+  exception.** `bin/netcheck` uses `set -uo pipefail` (no `-e`) because it runs
+  probes that are *expected* to fail; under `-e` the first unreachable host
+  would abort the whole run. It contains the risk the same way `tests/run.sh`
+  does — every check runs in its own subshell. Do not "fix" this by adding
+  `-e`.
 - Quote expansions (`"$var"`, `"${arr[@]}"`); prefer `[[ ]]` over `[ ]`, and
   `$(...)` over backticks.
 - Declare function-local variables with `local`.
@@ -181,6 +219,15 @@ Enforced mechanically by `make check` — run it rather than guessing.
 
 ## Gotchas
 
+- **Ubuntu ships `mawk`, RHEL ships `gawk`.** `strtonum()` and `and()` are gawk
+  extensions and are a *fatal error* on Ubuntu — a script using them dies on
+  the distro you most likely test on. Do hex and bitwise arithmetic in bash
+  (`$((16#$hex))`, `$(( x & 2 ))`) instead. `bin/netcheck` decodes
+  `/proc/net/route` this way for exactly this reason.
+- **Do not assume `ip`, `ping`, `dig`, or `nmcli` exist.** Verified on this
+  project's own dev container: a stock Ubuntu 24.04 image has none of them.
+  Read `/proc` and `/sys` for facts, use `getent` for DNS, and bash's
+  `/dev/tcp` for TCP probes; treat those tools as optional enrichment only.
 - **`scripts/shell-files.sh` only sees files git knows about** (tracked, plus
   untracked-and-not-ignored). A new script that is ignored by `.gitignore` will
   be silently skipped by lint and fmt.
