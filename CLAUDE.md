@@ -246,8 +246,7 @@ Enforced mechanically by `make check` — run it rather than guessing.
 
 ## Git workflow
 
-- Active development branch: `claude/claude-md-documentation-u8ihn9`.
-- The repository has **no default branch yet** — it had zero commits before this
-  scaffold.
+- `main` is the default branch and the base for all work. Branch from it, and
+  open changes against it.
 - Run `make check` before committing; it is exactly what CI runs.
 - Do not create pull requests unless explicitly asked.
